@@ -242,12 +242,36 @@ def save_to_json(city_name: str, data: dict):
         print(f"⚠️ 파일 저장 중 오류가 발생했습니다: {e}")
 
 
+def load_saved_json(filename: str) -> Optional[dict]:
+    """이전에 저장해둔 JSON 날씨 파일을 다시 불러온다."""
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        print(f"📂 '{filename}' 파일을 불러왔습니다.")
+        return data
+    except FileNotFoundError:
+        print(f"⚠️ '{filename}' 파일을 찾을 수 없습니다.")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"⚠️ JSON 파일을 읽는 중 오류가 발생했습니다: {e}")
+        return None
+
 def main():
     print("🌦️ 날씨 예보 프로그램 (Open-Meteo API)")
     print("-" * 60)
     print("오전 6시, 오후 3시 기준으로 여러 날의 날씨를 제공합니다.")
     print("-" * 60)
     print()
+
+    load_choice = input("이전에 저장한 JSON 파일을 불러오시겠습니까? (y/n): ").strip().lower()
+    if load_choice == "y":
+        saved_filename = input("불러올 파일명을 입력하세요: ").strip()
+        saved_data = load_saved_json(saved_filename)
+        if saved_data:
+            print("저장된 날씨 데이터를 불러왔습니다. 프로그램을 종료합니다.")
+            return
+        print("새로 날씨를 조회합니다.")
+        print()
 
     city_input = input("날씨를 확인할 지역을 입력하세요 (기본값: 서울): ").strip()
     city_name = city_input if city_input else "서울"
