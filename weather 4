@@ -159,6 +159,25 @@ def pick_hour_value(hourly: dict, target_date: str, target_hour: str):
     }
 
 
+def summarize_day(morning: Optional[dict], afternoon: Optional[dict], tmin: float, tmax: float) -> str:
+    """하루치 날씨를 한 줄 요약 문장으로 만든다."""
+    if not morning and not afternoon:
+        return "날씨 정보를 요약할 수 없습니다."
+
+    rain_chance = max(
+        (morning or {}).get("precip_prob", 0),
+        (afternoon or {}).get("precip_prob", 0),
+    )
+
+    if rain_chance >= 60:
+        outlook = "비가 올 확률이 높은 날입니다. 우산을 챙기세요."
+    elif rain_chance >= 30:
+        outlook = "비가 올 수도 있으니 우산을 챙기는 게 좋습니다."
+    else:
+        outlook = "대체로 맑고 비 걱정은 적은 날입니다."
+
+    return f"오늘은 최저 {tmin}°C, 최고 {tmax}°C가 예상되며, {outlook}"
+
 def label_for_day(offset: int, date_str: str) -> str:
     """오늘/내일/모레 형태의 라벨을 만든다."""
     md = datetime.strptime(date_str, "%Y-%m-%d").strftime("%m.%d.")
@@ -208,6 +227,7 @@ def display_weather(city_name: str, data: dict, days: int):
         tmin = daily["temperature_2m_min"][offset]
         tmax = daily["temperature_2m_max"][offset]
         print(f"  🌡️ 일일 기온: 최저 {tmin} °C / 최고 {tmax} °C")
+        print(f"  📝 요약: {summarize_day(morning, afternoon, tmin, tmax)}")
         print()
         print("=" * 60)
 
