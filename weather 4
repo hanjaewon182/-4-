@@ -1,0 +1,224 @@
+# =========================================================
+# 날씨 예보 프로그램 (Open-Meteo API 사용, 인증키 불필요)
+# [수정 전 버전 - 한글 지역명 검색 미지원]
+# ---------------------------------------------------------
+# - 사용자에게 지역명을 입력받아 위경도로 변환 (기본값: 서울)
+# - 오늘부터 N일간(기본 3일)의 날씨를 오전 6시 / 오후 3시 기준으로 표시
+# - 일일 최저/최고 기온도 함께 표시
+# - 원하면 JSON 파일로 결과 저장 가능
+#
+# GitHub 프로젝트 주소: https://github.com/여기에-본인-아이디/여기에-저장소이름
+# (※ 저장소 생성 후 이 주석을 실제 주소로 반드시 수정하세요)
+# =========================================================
+
+import requests
+from datetime import datetime, timedelta
+from typing import Optional
+import json
+
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# Open-Meteo weathercode -> (한글설명, 이모지)
+WEATHER_CODE_MAP = {
+    0: ("맑음", "☀️"),
+    1: ("대체로 맑음", "🌤️"),
+    2: ("구름 조금", "⛅"),
+    3: ("흐림", "☁️"),
+    45: ("안개", "🌫️"),
+    48: ("서리 안개", "🌫️"),
+    51: ("약한 이슬비", "🌦️"),
+    53: ("이슬비", "🌦️"),
+    55: ("강한 이슬비", "🌧️"),
+    61: ("약한 비", "🌧️"),
+    63: ("비", "🌧️"),
+    65: ("강한 비", "🌧️"),
+    71: ("약한 눈", "🌨️"),
+    73: ("눈", "🌨️"),
+    75: ("강한 눈", "❄️"),
+    80: ("약한 소나기", "🌦️"),
+    81: ("소나기", "🌧️"),
+    82: ("강한 소나기", "⛈️"),
+    95: ("뇌우", "⛈️"),
+    96: ("우박 동반 뇌우", "⛈️"),
+    99: ("강한 우박 동반 뇌우", "⛈️"),
+}
+
+
+def get_weather_desc(code: int):
+    """weathercode를 (설명, 이모지)로 변환. 목록에 없으면 기본값 반환."""
+    return WEATHER_CODE_MAP.get(code, ("정보 없음", "❔"))
+
+
+def get_coordinates(city_name: str) -> Optional[dict]:
+    """지역명을 위경도로 변환 (Open-Meteo Geocoding API 사용)."""
+    params = {
+        "name": city_name,
+        "count": 1,
+        "language": "ko",
+        "format": "json",
+    }
+    try:
+        res = requests.get(GEOCODE_URL, params=params, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+    except requests.RequestException as e:
+        print(f"⚠️ 지역 검색 중 오류가 발생했습니다: {e}")
+        return None
+
+    results = data.get("results")
+    if not results:
+        return None
+
+    first = results[0]
+    return {
+        "name": first.get("name", city_name),
+        "latitude": first["latitude"],
+        "longitude": first["longitude"],
+    }
+
+
+def fetch_weather(latitude: float, longitude: float, days: int) -> Optional[dict]:
+    """지정한 위경도의 시간별 날씨 데이터를 가져온다."""
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": "temperature_2m,precipitation_probability,relative_humidity_2m,"
+                  "weathercode,windspeed_10m",
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "timezone": "auto",
+        "forecast_days": days,
+    }
+    try:
+        res = requests.get(FORECAST_URL, params=params, timeout=10)
+        res.raise_for_status()
+        return res.json()
+    except requests.RequestException as e:
+        print(f"⚠️ 날씨 정보를 가져오는 중 오류가 발생했습니다: {e}")
+        return None
+
+
+def pick_hour_value(hourly: dict, target_date: str, target_hour: str):
+    """hourly 데이터에서 특정 날짜(target_date)와 시각(target_hour, 'HH:00')에 해당하는 값을 찾는다."""
+    times = hourly["time"]
+    target_iso = f"{target_date}T{target_hour}"
+    if target_iso not in times:
+        return None
+    idx = times.index(target_iso)
+    return {
+        "temp": hourly["temperature_2m"][idx],
+        "precip_prob": hourly["precipitation_probability"][idx],
+        "humidity": hourly["relative_humidity_2m"][idx],
+        "code": hourly["weathercode"][idx],
+        "wind": hourly["windspeed_10m"][idx],
+    }
+
+
+def label_for_day(offset: int, date_str: str) -> str:
+    """오늘/내일/모레 형태의 라벨을 만든다."""
+    md = datetime.strptime(date_str, "%Y-%m-%d").strftime("%m.%d.")
+    if offset == 0:
+        return f"오늘 ({md})"
+    elif offset == 1:
+        return f"내일 ({md})"
+    elif offset == 2:
+        return f"모레 ({md})"
+    else:
+        return f"{offset}일 후 ({md})"
+
+
+def print_slot(time_label: str, icon_time: str, info: dict):
+    desc, icon = get_weather_desc(info["code"])
+    print(f"  {icon_time} {time_label}")
+    print(f"     날씨: {desc}")
+    print(f"     기온: {info['temp']} °C")
+    print(f"     강수확률: {info['precip_prob']}%")
+    print(f"     습도: {info['humidity']}%")
+    print(f"     풍속: {info['wind']} m/s")
+    print()
+
+
+def display_weather(city_name: str, data: dict, days: int):
+    hourly = data["hourly"]
+    daily = data["daily"]
+
+    print("=" * 60)
+    print(f"🌈 {city_name} 날씨 예보 (오전 6시 / 오후 3시 기준)")
+    print("=" * 60)
+
+    for offset in range(days):
+        date = daily["time"][offset]
+        print()
+        print(label_for_day(offset, date))
+        print("-" * 60)
+
+        morning = pick_hour_value(hourly, date, "06:00")
+        afternoon = pick_hour_value(hourly, date, "15:00")
+
+        if morning:
+            print_slot("오전 06:00", "🌅", morning)
+        if afternoon:
+            print_slot("오후 15:00", "🏙️", afternoon)
+
+        tmin = daily["temperature_2m_min"][offset]
+        tmax = daily["temperature_2m_max"][offset]
+        print(f"  🌡️ 일일 기온: 최저 {tmin} °C / 최고 {tmax} °C")
+        print()
+        print("=" * 60)
+
+
+def save_to_json(city_name: str, data: dict):
+    filename = f"weather_{city_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"✅ '{filename}' 파일로 저장했습니다.")
+    except OSError as e:
+        print(f"⚠️ 파일 저장 중 오류가 발생했습니다: {e}")
+
+
+def main():
+    print("🌦️ 날씨 예보 프로그램 (Open-Meteo API)")
+    print("-" * 60)
+    print("오전 6시, 오후 3시 기준으로 여러 날의 날씨를 제공합니다.")
+    print("-" * 60)
+    print()
+
+    city_input = input("날씨를 확인할 지역을 입력하세요 (기본값: 서울): ").strip()
+    city_name = city_input if city_input else "서울"
+
+    days_input = input("몇 일간의 날씨를 보시겠습니까? (기본값: 3, 최대 7): ").strip()
+    try:
+        days = int(days_input) if days_input else 3
+        days = max(2, min(days, 7))  # 2~7일 범위로 제한 (과제 조건: 2일 이상)
+    except ValueError:
+        days = 3
+
+    print()
+    location = get_coordinates(city_name)
+    if not location:
+        print(f"❌ '{city_name}' 지역을 찾을 수 없습니다. 프로그램을 종료합니다.")
+        return
+
+    print(f"📍 {location['name']} (위도: {location['latitude']}, "
+          f"경도: {location['longitude']})의 날씨 정보를 가져옵니다...")
+    print()
+
+    data = fetch_weather(location["latitude"], location["longitude"], days)
+    if not data:
+        print("❌ 날씨 정보를 가져오지 못했습니다. 프로그램을 종료합니다.")
+        return
+
+    display_weather(location["name"], data, days)
+
+    save_choice = input("날씨 정보를 JSON 파일로 저장하시겠습니까? (y/n): ").strip().lower()
+    if save_choice == "y":
+        save_to_json(location["name"], data)
+
+    print()
+    print("프로그램을 종료합니다. 감사합니다. 👋")
+
+
+if __name__ == "__main__":
+    main()
