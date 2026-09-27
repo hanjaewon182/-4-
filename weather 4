@@ -1,13 +1,12 @@
 # =========================================================
 # 날씨 예보 프로그램 (Open-Meteo API 사용, 인증키 불필요)
-# [수정 전 버전 - 한글 지역명 검색 미지원]
 # ---------------------------------------------------------
 # - 사용자에게 지역명을 입력받아 위경도로 변환 (기본값: 서울)
 # - 오늘부터 N일간(기본 3일)의 날씨를 오전 6시 / 오후 3시 기준으로 표시
 # - 일일 최저/최고 기온도 함께 표시
 # - 원하면 JSON 파일로 결과 저장 가능
 #
-# GitHub 프로젝트 주소: https://github.com/여기에-본인-아이디/여기에-저장소이름
+# GitHub 프로젝트 주소: https://github.com/hanjaewon182/-4-.git
 # (※ 저장소 생성 후 이 주석을 실제 주소로 반드시 수정하세요)
 # =========================================================
 
@@ -19,7 +18,26 @@ import json
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-
+# 자주 쓰는 한글 지역명 -> 영문 지역명 우선 변환한다.
+KOREAN_CITY_MAP = {
+    "서울": "Seoul",
+    "부산": "Busan",
+    "대구": "Daegu",
+    "인천": "Incheon",
+    "광주": "Gwangju",
+    "대전": "Daejeon",
+    "울산": "Ulsan",
+    "세종": "Sejong",
+    "수원": "Suwon",
+    "천안": "Cheonan",
+    "청주": "Cheongju",
+    "전주": "Jeonju",
+    "제주": "Jeju",
+    "춘천": "Chuncheon",
+    "강릉": "Gangneung",
+    "포항": "Pohang",
+    "창원": "Changwon",
+}
 # Open-Meteo weathercode -> (한글설명, 이모지)
 WEATHER_CODE_MAP = {
     0: ("맑음", "☀️"),
@@ -50,11 +68,10 @@ def get_weather_desc(code: int):
     """weathercode를 (설명, 이모지)로 변환. 목록에 없으면 기본값 반환."""
     return WEATHER_CODE_MAP.get(code, ("정보 없음", "❔"))
 
-
-def get_coordinates(city_name: str) -> Optional[dict]:
-    """지역명을 위경도로 변환 (Open-Meteo Geocoding API 사용)."""
+def _request_geocode(query: str) -> Optional[dict]:
+    """Open-Meteo Geocoding API에 실제로 요청을 보내는 내부 함수."""
     params = {
-        "name": city_name,
+        "name": query,
         "count": 1,
         "language": "ko",
         "format": "json",
@@ -73,11 +90,25 @@ def get_coordinates(city_name: str) -> Optional[dict]:
 
     first = results[0]
     return {
-        "name": first.get("name", city_name),
+        "name": first.get("name", query),
         "latitude": first["latitude"],
         "longitude": first["longitude"],
     }
 
+
+def get_coordinates(city_name: str) -> Optional[dict]:
+    """지역명을 위경도로 변환 (Open-Meteo Geocoding API 사용).
+
+    한글 지역명은 매핑 테이블로 먼저 영문 변환을 시도하고,
+    실패하면 입력값 그대로 다시 한번 검색한다.
+    """
+    mapped_name = KOREAN_CITY_MAP.get(city_name.strip())
+    if mapped_name:
+        result = _request_geocode(mapped_name)
+        if result:
+            return result
+
+    return _request_geocode(city_name)
 
 def fetch_weather(latitude: float, longitude: float, days: int) -> Optional[dict]:
     """지정한 위경도의 시간별 날씨 데이터를 가져온다."""
