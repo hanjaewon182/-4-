@@ -87,6 +87,26 @@ def get_weather_desc(code: int):
     """weathercode를 (설명, 이모지)로 변환. 목록에 없으면 기본값 반환."""
     return WEATHER_CODE_MAP.get(code, ("정보 없음", "❔"))
 
+
+def validate_city_name(city_name: str) -> tuple[bool, str]:
+    """지역명 입력값이 올바른지 검사한다. (빈 값, 숫자만 입력, 너무 긴 입력 등 방지)"""
+    name = city_name.strip()
+
+    if not name:
+        return False, "지역명이 비어 있습니다."
+
+    if name.isdigit():
+        return False, "지역명에 숫자만 입력할 수 없습니다."
+
+    if len(name) > 30:
+        return False, "지역명이 너무 깁니다. (30자 이하로 입력해주세요)"
+
+    invalid_chars = set("!@#$%^&*()[]{}<>?/\\|~`")
+    if any(ch in invalid_chars for ch in name):
+        return False, "지역명에 사용할 수 없는 특수문자가 포함되어 있습니다."
+
+    return True, ""
+
 def _request_geocode(query: str) -> Optional[dict]:
     """Open-Meteo Geocoding API에 실제로 요청을 보내는 내부 함수."""
     params = {
@@ -94,7 +114,7 @@ def _request_geocode(query: str) -> Optional[dict]:
         "count": 1,
         "language": "ko",
         "format": "json",
-    }
+    }   
     try:
         res = requests.get(GEOCODE_URL, params=params, timeout=10)
         res.raise_for_status()
@@ -273,8 +293,14 @@ def main():
         print("새로 날씨를 조회합니다.")
         print()
 
-    city_input = input("날씨를 확인할 지역을 입력하세요 (기본값: 서울): ").strip()
+        city_input = input("날씨를 확인할 지역을 입력하세요 (기본값: 서울): ").strip()
     city_name = city_input if city_input else "서울"
+
+    if city_input:
+        is_valid, error_msg = validate_city_name(city_input)
+        if not is_valid:
+            print(f"❌ 입력값 오류: {error_msg}")
+            return
 
     days_input = input("몇 일간의 날씨를 보시겠습니까? (기본값: 3, 최대 7): ").strip()
     try:
